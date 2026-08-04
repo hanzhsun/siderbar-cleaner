@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         微博净化器·内容屏蔽助手
 // @namespace    http://tampermonkey.net/
-// @version      7.3
-// @description  信息流屏蔽+正文屏蔽+导航屏蔽+侧边栏屏蔽+评论用户屏蔽+自定义分组屏蔽+广告图片屏蔽+搜索页组合广告屏蔽+共创微博屏蔽+图片广告标签屏蔽(深度优化防漏判版)
+// @version      7.3.1
+// @description  信息流屏蔽+正文屏蔽+导航屏蔽+侧边栏屏蔽+评论用户屏蔽+自定义分组屏蔽+广告图片屏蔽+搜索页组合广告屏蔽+共创微博屏蔽+图片广告标签屏蔽(深度优化防漏判版)；支持隐藏整栏右侧边栏，主栏铺满并对齐左右留白
 // @author       MRBANK
 // @match        https://weibo.com/*
 // @match        https://*.weibo.com/*
@@ -29,6 +29,7 @@
         blockAdImages: GM_getValue('blockAdImages', true),
         blockSearchBannerAds: GM_getValue('blockSearchBannerAds', false),
         blockCoCreate: GM_getValue('blockCoCreate', true),
+        hideRightColumn: GM_getValue('hideRightColumn', false),
         debugMode: GM_getValue('debugMode', false),
 
         // 信息流标签关键词（可增删）
@@ -115,7 +116,7 @@
 
     function log(message, type = 'info', data = null) {
         if (!CONFIG.debugMode && type !== 'error') return;
-        const prefix = '【微博屏蔽 v7.3】';
+        const prefix = '【微博屏蔽 v7.3.1】';
         const timestamp = new Date().toLocaleTimeString();
         switch(type) {
             case 'error': console.error(`${prefix}[${timestamp}]`, message, data || ''); break;
@@ -220,9 +221,146 @@
                 .weibo-comment-blocked { display: block !important; opacity: 0.3 !important; border: 2px dashed purple !important; background: rgba(128,0,128,0.1) !important; }
                 .weibo-ad-image-blocked { display: block !important; opacity: 0.3 !important; border: 2px dashed orange !important; background: rgba(255,165,0,0.1) !important; }
             ` : ''}
+
+            html.weibo-hide-right-column main > [class*="_side_"],
+            html.weibo-hide-right-column [data-weibo-right-col] {
+                display: none !important;
+                width: 0 !important;
+                min-width: 0 !important;
+                max-width: 0 !important;
+                flex: 0 0 0 !important;
+                overflow: hidden !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                border: none !important;
+            }
+
+            html.weibo-hide-right-column main,
+            html.weibo-hide-right-column main > [class*="_full_"],
+            html.weibo-hide-right-column [data-weibo-layout-expanded] {
+                max-width: none !important;
+                box-sizing: border-box !important;
+            }
+
+            html.weibo-hide-right-column main > [class*="_full_"] {
+                width: 100% !important;
+                flex: 1 1 auto !important;
+            }
+
+            html.weibo-hide-right-column main > [class*="_full_"] > div,
+            html.weibo-hide-right-column main > [class*="_full_"] article {
+                max-width: 100% !important;
+            }
         `;
         GM_addStyle(styles);
+        applyRightColumnLayout();
+        ensureRightColumnResizeListener();
         log('样式注入成功', 'success');
+    }
+
+    function clearExpandedLayoutStyles() {
+        document.querySelectorAll('[data-weibo-layout-expanded]').forEach(el => {
+            ['width', 'max-width', 'min-width', 'flex', 'margin-left', 'margin-right', 'justify-content', 'align-items', 'align-self', 'box-sizing'].forEach(prop => {
+                el.style.removeProperty(prop);
+            });
+            el.removeAttribute('data-weibo-layout-expanded');
+        });
+    }
+
+    function markExpanded(el) {
+        if (!el) return;
+        el.setAttribute('data-weibo-layout-expanded', '1');
+    }
+
+    function applyRightColumnLayout() {
+        document.documentElement.classList.toggle('weibo-hide-right-column', !!CONFIG.hideRightColumn);
+        document.querySelectorAll('[data-weibo-right-col]').forEach(el => el.removeAttribute('data-weibo-right-col'));
+        clearExpandedLayoutStyles();
+
+        if (!CONFIG.hideRightColumn) return;
+
+        const main = document.querySelector('main');
+        if (!main) return;
+
+        [...main.children].forEach(el => {
+            const cls = String(el.className || '');
+            if (cls.includes('_side_') || el.querySelector('.wbpro-side, .wbpro-side-copy, [class*="_sideMain_"]')) {
+                el.setAttribute('data-weibo-right-col', '1');
+            }
+        });
+
+        const content = main.closest('[class*="_content_"]');
+        const leftNav = content
+            ? [...content.children].find(el => String(el.className || '').includes('_side_') && !main.contains(el))
+            : null;
+
+        // 铺满布局：左右页边距、左侧栏宽度（可按观感微调）
+        const EDGE_GAP = 60;
+        const LEFT_NAV_WIDTH = 160;
+        const viewport = document.documentElement.clientWidth || window.innerWidth;
+        const navWidth = leftNav ? LEFT_NAV_WIDTH : 0;
+        const leftBoundBefore = leftNav ? leftNav.getBoundingClientRect().right : EDGE_GAP;
+        const midGap = Math.max(0, Math.round(main.getBoundingClientRect().left - leftBoundBefore));
+        const mainWidth = Math.max(400, Math.floor(viewport - EDGE_GAP - navWidth - midGap - EDGE_GAP));
+
+        const pageWrap = content ? content.parentElement : null;
+        if (pageWrap) {
+            markExpanded(pageWrap);
+            pageWrap.style.setProperty('align-items', 'stretch', 'important');
+            pageWrap.style.setProperty('width', '100%', 'important');
+            pageWrap.style.setProperty('max-width', '100%', 'important');
+        }
+
+        if (leftNav) {
+            markExpanded(leftNav);
+            leftNav.style.setProperty('width', LEFT_NAV_WIDTH + 'px', 'important');
+            leftNav.style.setProperty('min-width', LEFT_NAV_WIDTH + 'px', 'important');
+            leftNav.style.setProperty('max-width', LEFT_NAV_WIDTH + 'px', 'important');
+            leftNav.style.setProperty('flex', `0 0 ${LEFT_NAV_WIDTH}px`, 'important');
+        }
+
+        if (content) {
+            markExpanded(content);
+            content.style.setProperty('width', Math.floor(navWidth + midGap + mainWidth) + 'px', 'important');
+            content.style.setProperty('max-width', Math.floor(viewport - EDGE_GAP * 2) + 'px', 'important');
+            content.style.setProperty('margin-left', EDGE_GAP + 'px', 'important');
+            content.style.setProperty('margin-right', EDGE_GAP + 'px', 'important');
+            content.style.setProperty('justify-content', 'flex-start', 'important');
+            content.style.setProperty('align-self', 'flex-start', 'important');
+            content.style.setProperty('box-sizing', 'border-box', 'important');
+        }
+
+        const mainWrap = main.parentElement;
+        if (mainWrap && mainWrap !== content) {
+            markExpanded(mainWrap);
+            mainWrap.style.setProperty('width', mainWidth + 'px', 'important');
+            mainWrap.style.setProperty('max-width', 'none', 'important');
+            mainWrap.style.setProperty('flex', '1 1 auto', 'important');
+        }
+
+        markExpanded(main);
+        main.style.setProperty('width', mainWidth + 'px', 'important');
+        main.style.setProperty('max-width', 'none', 'important');
+        main.style.setProperty('flex', '1 1 auto', 'important');
+
+        const feedCol = [...main.children].find(el => !el.hasAttribute('data-weibo-right-col'));
+        if (feedCol) {
+            markExpanded(feedCol);
+            feedCol.style.setProperty('width', '100%', 'important');
+            feedCol.style.setProperty('max-width', 'none', 'important');
+            feedCol.style.setProperty('flex', '1 1 auto', 'important');
+        }
+
+        log(`右侧栏布局: edgeGap=${EDGE_GAP}px, leftNav=${LEFT_NAV_WIDTH}px, mainWidth=${mainWidth}px, viewport=${viewport}`, 'info');
+    }
+
+    let rightColumnResizeBound = false;
+    function ensureRightColumnResizeListener() {
+        if (rightColumnResizeBound) return;
+        rightColumnResizeBound = true;
+        window.addEventListener('resize', throttle(() => {
+            if (CONFIG.hideRightColumn) applyRightColumnLayout();
+        }, 200), { passive: true });
     }
 
     // 获取微博正文文本
@@ -420,6 +558,7 @@
             }
         } catch (e) { log('处理侧边栏模块出错', 'error', e); }
         if (blockedCount) log(`本次屏蔽侧边栏模块 ${blockedCount} 个`, 'info');
+        applyRightColumnLayout();
         performanceMonitor.end(startTime, '处理侧边栏模块');
     }
 
@@ -667,6 +806,13 @@
                     <div class="keyword-list" data-type="topNavKeywords"></div>
                 </div>
                 <div class="tab-pane" id="tab-sidebar">
+                    <div class="master-toggle">
+                        <label>
+                            <input type="checkbox" class="keyword-enable" data-config-key="hideRightColumn" ${TEMP_CONFIG.hideRightColumn ? 'checked' : ''}>
+                            <span class="keyword-text">隐藏整个右侧栏并铺满帖文</span>
+                        </label>
+                        <div class="master-toggle-desc">隐藏右侧整列；主栏铺满；左右页边距约 60px，左侧栏约 160px</div>
+                    </div>
                     <div class="keyword-list" data-type="sidebarModules"></div>
                 </div>
                 <div class="tab-pane" id="tab-comment">
@@ -817,6 +963,7 @@
             performanceMonitor.stats.blockedComments = 0;
             performanceMonitor.stats.blockedAdImages = 0;
             performanceMonitor.stats.blockedCoCreate = 0;
+            applyRightColumnLayout();
             processContent();
             closeConfigUI();
         });
