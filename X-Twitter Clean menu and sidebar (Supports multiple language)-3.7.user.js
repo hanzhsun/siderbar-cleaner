@@ -981,6 +981,8 @@
                 flex-basis: ${customWidth}px !important;
                 margin-left: auto !important;
                 margin-right: auto !important;
+                position: relative !important;
+                left: -48px !important;
             }
 
             html:not(.x-clean-chat-page) div[data-testid="primaryColumn"] > div {

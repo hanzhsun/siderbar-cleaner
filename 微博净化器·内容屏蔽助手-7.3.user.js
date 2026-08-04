@@ -260,7 +260,7 @@
 
     function clearExpandedLayoutStyles() {
         document.querySelectorAll('[data-weibo-layout-expanded]').forEach(el => {
-            ['width', 'max-width', 'min-width', 'flex', 'margin-left', 'margin-right', 'justify-content', 'align-items', 'align-self', 'box-sizing'].forEach(prop => {
+            ['width', 'max-width', 'min-width', 'flex', 'margin-left', 'margin-right', 'padding-left', 'justify-content', 'align-items', 'align-self', 'box-sizing'].forEach(prop => {
                 el.style.removeProperty(prop);
             });
             el.removeAttribute('data-weibo-layout-expanded');
@@ -270,6 +270,34 @@
     function markExpanded(el) {
         if (!el) return;
         el.setAttribute('data-weibo-layout-expanded', '1');
+    }
+
+    function getLayoutMetrics(viewport, hasLeftNav) {
+        // 左右页边距分开：只收左、右保持较宽；窄屏再一起收紧
+        let leftEdgeGap = 40;
+        let rightEdgeGap = 80;
+        let leftNavWidth = 150;
+        let minMain = 400;
+
+        if (viewport < 700) {
+            leftEdgeGap = 12;
+            rightEdgeGap = 12;
+            leftNavWidth = 0;
+            minMain = 260;
+        } else if (viewport < 900) {
+            leftEdgeGap = 16;
+            rightEdgeGap = 32;
+            leftNavWidth = 120;
+            minMain = 300;
+        } else if (viewport < 1100) {
+            leftEdgeGap = 24;
+            rightEdgeGap = 48;
+            leftNavWidth = 135;
+            minMain = 340;
+        }
+
+        if (!hasLeftNav) leftNavWidth = 0;
+        return { leftEdgeGap, rightEdgeGap, leftNavWidth, minMain };
     }
 
     function applyRightColumnLayout() {
@@ -294,53 +322,67 @@
             ? [...content.children].find(el => String(el.className || '').includes('_side_') && !main.contains(el))
             : null;
 
-        // 铺满布局：左右页边距、左侧栏宽度（可按观感微调）
-        const EDGE_GAP = 60;
-        const LEFT_NAV_WIDTH = 160;
+        // 用布局视口宽度，避免 visualViewport / 滚动条把右边距算没
         const viewport = document.documentElement.clientWidth || window.innerWidth;
-        const navWidth = leftNav ? LEFT_NAV_WIDTH : 0;
-        const leftBoundBefore = leftNav ? leftNav.getBoundingClientRect().right : EDGE_GAP;
-        const midGap = Math.max(0, Math.round(main.getBoundingClientRect().left - leftBoundBefore));
-        const mainWidth = Math.max(400, Math.floor(viewport - EDGE_GAP - navWidth - midGap - EDGE_GAP));
+        const {
+            leftEdgeGap: LEFT_GAP,
+            rightEdgeGap: RIGHT_GAP,
+            leftNavWidth: LEFT_NAV_WIDTH
+        } = getLayoutMetrics(viewport, !!leftNav);
+        const contentWidth = Math.max(280, Math.floor(viewport - LEFT_GAP - RIGHT_GAP));
 
         const pageWrap = content ? content.parentElement : null;
         if (pageWrap) {
             markExpanded(pageWrap);
-            pageWrap.style.setProperty('align-items', 'stretch', 'important');
+            // 不能用 stretch，否则子项被拉满宽，margin-right 会被挤没
+            pageWrap.style.setProperty('align-items', 'flex-start', 'important');
             pageWrap.style.setProperty('width', '100%', 'important');
             pageWrap.style.setProperty('max-width', '100%', 'important');
+            pageWrap.style.setProperty('box-sizing', 'border-box', 'important');
         }
 
-        if (leftNav) {
+        if (leftNav && LEFT_NAV_WIDTH > 0) {
             markExpanded(leftNav);
             leftNav.style.setProperty('width', LEFT_NAV_WIDTH + 'px', 'important');
             leftNav.style.setProperty('min-width', LEFT_NAV_WIDTH + 'px', 'important');
             leftNav.style.setProperty('max-width', LEFT_NAV_WIDTH + 'px', 'important');
             leftNav.style.setProperty('flex', `0 0 ${LEFT_NAV_WIDTH}px`, 'important');
+            leftNav.style.setProperty('padding-left', '0', 'important');
+            leftNav.style.setProperty('box-sizing', 'border-box', 'important');
+            leftNav.querySelectorAll(':scope > *').forEach(child => {
+                markExpanded(child);
+                child.style.setProperty('margin-left', '0', 'important');
+                child.style.setProperty('padding-left', '8px', 'important');
+                child.style.setProperty('box-sizing', 'border-box', 'important');
+            });
         }
 
         if (content) {
             markExpanded(content);
-            content.style.setProperty('width', Math.floor(navWidth + midGap + mainWidth) + 'px', 'important');
-            content.style.setProperty('max-width', Math.floor(viewport - EDGE_GAP * 2) + 'px', 'important');
-            content.style.setProperty('margin-left', EDGE_GAP + 'px', 'important');
-            content.style.setProperty('margin-right', EDGE_GAP + 'px', 'important');
+            content.style.setProperty('width', contentWidth + 'px', 'important');
+            content.style.setProperty('max-width', contentWidth + 'px', 'important');
+            content.style.setProperty('margin-left', LEFT_GAP + 'px', 'important');
+            content.style.setProperty('margin-right', RIGHT_GAP + 'px', 'important');
             content.style.setProperty('justify-content', 'flex-start', 'important');
             content.style.setProperty('align-self', 'flex-start', 'important');
             content.style.setProperty('box-sizing', 'border-box', 'important');
+            content.style.setProperty('flex', '0 0 auto', 'important');
         }
 
+        // 主栏吃掉 content 里左侧栏以外的剩余宽度，不再用 midGap 反推（容易算错挤掉右边距）
         const mainWrap = main.parentElement;
         if (mainWrap && mainWrap !== content) {
             markExpanded(mainWrap);
-            mainWrap.style.setProperty('width', mainWidth + 'px', 'important');
+            mainWrap.style.setProperty('width', 'auto', 'important');
             mainWrap.style.setProperty('max-width', 'none', 'important');
+            mainWrap.style.setProperty('min-width', '0', 'important');
             mainWrap.style.setProperty('flex', '1 1 auto', 'important');
         }
 
         markExpanded(main);
-        main.style.setProperty('width', mainWidth + 'px', 'important');
+        main.style.setProperty('width', '100%', 'important');
         main.style.setProperty('max-width', 'none', 'important');
+        main.style.setProperty('min-width', '0', 'important');
         main.style.setProperty('flex', '1 1 auto', 'important');
 
         const feedCol = [...main.children].find(el => !el.hasAttribute('data-weibo-right-col'));
@@ -348,19 +390,29 @@
             markExpanded(feedCol);
             feedCol.style.setProperty('width', '100%', 'important');
             feedCol.style.setProperty('max-width', 'none', 'important');
+            feedCol.style.setProperty('min-width', '0', 'important');
             feedCol.style.setProperty('flex', '1 1 auto', 'important');
         }
 
-        log(`右侧栏布局: edgeGap=${EDGE_GAP}px, leftNav=${LEFT_NAV_WIDTH}px, mainWidth=${mainWidth}px, viewport=${viewport}`, 'info');
+        log(`右侧栏布局: leftGap=${LEFT_GAP}px, rightGap=${RIGHT_GAP}px, leftNav=${LEFT_NAV_WIDTH}px, contentWidth=${contentWidth}px, viewport=${Math.round(viewport)}`, 'info');
     }
 
     let rightColumnResizeBound = false;
     function ensureRightColumnResizeListener() {
         if (rightColumnResizeBound) return;
         rightColumnResizeBound = true;
-        window.addEventListener('resize', throttle(() => {
+        const onResize = throttle(() => {
             if (CONFIG.hideRightColumn) applyRightColumnLayout();
-        }, 200), { passive: true });
+        }, 200);
+        window.addEventListener('resize', onResize, { passive: true });
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                if (CONFIG.hideRightColumn) applyRightColumnLayout();
+            }, 300);
+        }, { passive: true });
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', onResize, { passive: true });
+        }
     }
 
     // 获取微博正文文本
@@ -811,7 +863,7 @@
                             <input type="checkbox" class="keyword-enable" data-config-key="hideRightColumn" ${TEMP_CONFIG.hideRightColumn ? 'checked' : ''}>
                             <span class="keyword-text">隐藏整个右侧栏并铺满帖文</span>
                         </label>
-                        <div class="master-toggle-desc">隐藏右侧整列；主栏铺满；左右页边距约 60px，左侧栏约 160px</div>
+                        <div class="master-toggle-desc">隐藏右侧整列；主栏铺满。桌面左边距约 40px、右边距约 80px、左侧栏约 150px；iPad 会自动收紧</div>
                     </div>
                     <div class="keyword-list" data-type="sidebarModules"></div>
                 </div>
