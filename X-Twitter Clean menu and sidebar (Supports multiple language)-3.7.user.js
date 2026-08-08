@@ -3,7 +3,7 @@
 // @name:ja      X/Twitter きれいなメニューとサイドバー（多言語対応）
 // @name:zh-TW   X/Twitter 乾淨的選單和側邊欄（支持多種語言）
 // @name:zh-CN   X/Twitter 干净的选单和侧边栏（支持多种语言）
-// @version      3.7.1
+// @version      3.7
 // @description  Hidden Menu,Grok,Premium subscription,Verified Orgs,other,Explore,Notifications,Messages,Communities,Bookmarks,Right Column, Muted Account Notices and Customizable Settings
 // @description:ja    清潔なメニュー、Grok、高度なサブスクリプション、認証済み組織、他の、探索、通知、メッセージ、コミュニティ、ブックマーク、右側カラム、ミュート通知、およびカスタム設定
 // @description:zh-TW 乾淨的 選單、Grok、高級訂閱、已認證組織、其他、探索、通知、訊息、社群、書籤、右側邊欄、靜音通知和可自訂設定
@@ -24,7 +24,7 @@
 
 (function() {
     'use strict';
-    const SCRIPT_VERSION = '3.7.1';
+    const SCRIPT_VERSION = '3.7';
 
     const defaultSettings = {
         hideGrok: true,
@@ -376,10 +376,6 @@
         settings.hideCreatorsStudio = document.getElementById('hideCreatorsStudioCheckbox').checked;
         settings.useLargerCSS = document.getElementById('useLargerCSSCheckbox').checked;
         settings.cssWidth = parseInt(document.getElementById('cssWidthInput').value) || 680;
-
-        if (settings.hideRightColumn) {
-            settings.useLargerCSS = true;
-        }
 
         if (settings.useLargerCSS) {
             settings.useCustomPadding = false;
@@ -957,42 +953,9 @@
         cssRules += 'a[href="/i/chat"] { display: none !important; }';
     }
     if (settings.hideRightColumn) {
-        const customWidth = settings.cssWidth || 680;
-        cssRules += `
-            html:not(.x-clean-chat-page) div[data-testid="sidebarColumn"] {
-                display: none !important;
-                width: 0 !important;
-                min-width: 0 !important;
-                max-width: 0 !important;
-                flex: 0 0 0 !important;
-                padding: 0 !important;
-                margin: 0 !important;
-                border: none !important;
-                overflow: hidden !important;
-            }
-
-            html:not(.x-clean-chat-page) main[role="main"] > div {
-                justify-content: center !important;
-            }
-
-            html:not(.x-clean-chat-page) div[data-testid="primaryColumn"] {
-                width: ${customWidth}px !important;
-                max-width: ${customWidth}px !important;
-                flex-basis: ${customWidth}px !important;
-                margin-left: auto !important;
-                margin-right: auto !important;
-                position: relative !important;
-                left: -48px !important;
-            }
-
-            html:not(.x-clean-chat-page) div[data-testid="primaryColumn"] > div {
-                max-width: 100% !important;
-            }
-
-            html:not(.x-clean-chat-page) div[data-testid="primaryColumn"] article {
-                max-width: 100% !important;
-            }
-        `;
+        cssRules += '.css-175oi2r.r-yfoy6g.r-18bvks7.r-1867qdf.r-1phboty.r-rs99b7.r-1ifxtd0.r-1udh08x { display: none !important; }';
+        cssRules += '.css-175oi2r.r-18bvks7.r-1867qdf.r-1phboty.r-1ifxtd0.r-1udh08x.r-1niwhzg.r-1yadl64 { display: none !important; }';
+        cssRules += '.css-175oi2r.r-aqfbo4.r-10f7w94.r-1hycxz { display: none !important; }';
     }
     if (settings.hideChatButton) {
         cssRules += '.css-175oi2r.r-105ug2t.r-1867qdf.r-xnswec.r-u8s1d { display: none !important; }';
@@ -1001,12 +964,20 @@
     if (settings.hideCreatorsStudio) {
         cssRules += 'a[href="/i/jf/creators/studio"] { display: none !important; }';
     }
-    if (settings.useLargerCSS && !settings.hideRightColumn) {
-        const baseWidth = 600;
-        const customWidth = settings.cssWidth;
-        const sideOffset = (baseWidth - customWidth) / 2;
+    if (settings.useLargerCSS) {
+    const baseWidth = 600;
+    const customWidth = settings.cssWidth;
+    const sideOffset = (baseWidth - customWidth) / 2;
 
         cssRules += `
+            html:not(.x-clean-chat-page) .r-obd0qt {
+                align-items: center !important;
+            }
+
+            html:not(.x-clean-chat-page) .r-10f7w94 {
+                margin-right: -40px !important;
+            }
+
             html:not(.x-clean-chat-page) div[data-testid="primaryColumn"] {
                 width: ${customWidth}px !important;
                 max-width: ${customWidth}px !important;
