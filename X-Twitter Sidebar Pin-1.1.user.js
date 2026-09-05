@@ -3,7 +3,7 @@
 // @name:zh-CN   X/Twitter 侧栏固定增强
 // @name:zh-TW   X/Twitter 側欄固定增強
 // @name:ja      X/Twitter サイドバー固定
-// @version      1.0
+// @version      1.1
 // @description  Hide Home / Follow / Post / Right column; pin Bookmarks below X
 // @description:zh-CN 隐藏主页、推荐关注、发帖按钮、右侧栏；钉选书签到 X 标下
 // @description:zh-TW 隱藏主頁、推薦關注、發帖按鈕、右側欄；釘選書籤到 X 標下
@@ -18,16 +18,17 @@
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @namespace    https://github.com/siderbar-cleaner/x-twitter-sidebar-pin
-// @downloadURL  file:///D:/GitHub/siderbar-cleaner/X-Twitter%20Sidebar%20Pin-1.0.user.js
-// @updateURL    file:///D:/GitHub/siderbar-cleaner/X-Twitter%20Sidebar%20Pin-1.0.user.js
+// @downloadURL  file:///D:/GitHub/siderbar-cleaner/X-Twitter%20Sidebar%20Pin-1.1.user.js
+// @updateURL    file:///D:/GitHub/siderbar-cleaner/X-Twitter%20Sidebar%20Pin-1.1.user.js
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.0';
+    const SCRIPT_VERSION = '1.1';
     const PANEL_ID = 'xSidebarPinSettingsPanel';
     const BOOKMARKS_LINK_ID = 'x-clean-bookmarks-link';
+    const BOOKMARKS_HREF = '/i/history';
 
     const defaultSettings = {
         hideHome: true,
@@ -57,6 +58,8 @@
         'M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5zM6.5 4c-.276 0-.5.22-.5.5v14.56l6-4.29 6 4.29V4.5c0-.28-.224-.5-.5-.5h-11z';
     const BOOKMARK_ICON_FILLED =
         'M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5z';
+    const BOOKMARK_PATH_PREFIX = 'M4 4.5C4 3.12 5.119 2 6.5 2h11';
+    const BOOKMARK_ARIA_RE = /^(Bookmarks|History|书签|書籤|历史|歷史|ブックマーク|履歴)\b/i;
 
     const languages = {
         en: {
@@ -373,8 +376,13 @@
         if (path.getAttribute('d') !== d) path.setAttribute('d', d);
     }
 
+    function isBookmarksPath(pathname) {
+        const path = pathname || '';
+        return path.startsWith(BOOKMARKS_HREF) || path.startsWith('/i/bookmarks');
+    }
+
     function updateBookmarksActiveState(link) {
-        const isActive = location.pathname.startsWith('/i/bookmarks');
+        const isActive = isBookmarksPath(location.pathname);
         setBookmarkIcon(link, isActive);
         if (isActive) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
@@ -386,10 +394,10 @@
 
         const go = (newTab) => {
             if (newTab) {
-                window.open('/i/bookmarks', '_blank', 'noopener,noreferrer');
+                window.open(BOOKMARKS_HREF, '_blank', 'noopener,noreferrer');
                 return;
             }
-            if (!location.pathname.startsWith('/i/bookmarks')) location.assign('/i/bookmarks');
+            if (!isBookmarksPath(location.pathname)) navigateInApp(BOOKMARKS_HREF);
         };
 
         link.addEventListener(
@@ -414,6 +422,22 @@
         );
     }
 
+    function navigateInApp(path) {
+        const native = document.querySelector(
+            'a[href*="/i/history"]:not(#' + BOOKMARKS_LINK_ID + '):not([data-x-pin-bookmarks="1"]), a[href*="/i/bookmarks"]:not(#' + BOOKMARKS_LINK_ID + '):not([data-x-pin-bookmarks="1"])'
+        );
+        if (native) {
+            native.click();
+            return;
+        }
+        const a = document.createElement('a');
+        a.href = path;
+        a.style.display = 'none';
+        (document.querySelector('header[role="banner"]') || document.body).appendChild(a);
+        a.click();
+        a.remove();
+    }
+
     function applyBookmarksBrandContent(link, styleHref) {
         link.id = BOOKMARKS_LINK_ID;
         link.setAttribute('href', styleHref || '/home');
@@ -425,12 +449,66 @@
         updateBookmarksActiveState(link);
     }
 
-    function hideNativeBookmarksInHeader(header) {
-        header.querySelectorAll('a[href*="bookmarks"], a[data-testid="AppTabBar_Bookmarks_Link"]').forEach((el) => {
-            if (el.id === BOOKMARKS_LINK_ID) return;
-            el.style.setProperty('display', 'none', 'important');
-            el.setAttribute('aria-hidden', 'true');
+    function isPinnedBookmarksEl(el) {
+        return !!(
+            el &&
+            (el.id === BOOKMARKS_LINK_ID ||
+                el.getAttribute('data-x-pin-bookmarks') === '1' ||
+                el.closest('#' + BOOKMARKS_LINK_ID) ||
+                el.closest('[data-x-pin-bookmarks="1"]'))
+        );
+    }
+
+    function isBookmarkIconPath(d) {
+        return (
+            !!d &&
+            (d === BOOKMARK_ICON_OUTLINE ||
+                d === BOOKMARK_ICON_FILLED ||
+                d.startsWith(BOOKMARK_PATH_PREFIX))
+        );
+    }
+
+    function isOnscreenVisible(el) {
+        if (!el || !el.isConnected) return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width >= 8 && rect.height >= 8;
+    }
+
+    function isInsideOverlayMenu(el) {
+        return !!(
+            el &&
+            el.closest('[role="menu"], [role="listbox"], [role="dialog"], [data-testid="Dropdown"], [data-testid="HoverCard"]')
+        );
+    }
+
+    function collectNativeBookmarkEls(header) {
+        const found = new Set();
+        const add = (el) => {
+            if (!el || isPinnedBookmarksEl(el) || isInsideOverlayMenu(el)) return;
+            found.add(el);
+        };
+
+        header.querySelectorAll(
+            'a[href*="bookmarks"], a[href*="/i/history"], [href*="/i/bookmarks"], [href*="/i/history"], [data-testid="AppTabBar_Bookmarks_Link"], [data-testid="AppTabBar_History_Link"]'
+        ).forEach(add);
+
+        header.querySelectorAll('[aria-label]').forEach((el) => {
+            if (BOOKMARK_ARIA_RE.test((el.getAttribute('aria-label') || '').trim())) add(el);
         });
+
+        header.querySelectorAll('svg path').forEach((path) => {
+            if (!isBookmarkIconPath(path.getAttribute('d'))) return;
+            add(path.closest('a, button, [role="link"], [role="button"], [role="tab"]') || path);
+        });
+
+        return found;
+    }
+
+    function hasVisibleNativeSidebarBookmarks(header) {
+        for (const el of collectNativeBookmarkEls(header)) {
+            if (isOnscreenVisible(el)) return true;
+        }
+        return false;
     }
 
     function removeInjectedBookmarks(root) {
@@ -453,7 +531,10 @@
         const header = document.querySelector('header[role="banner"]');
         if (!header) return;
 
-        hideNativeBookmarksInHeader(header);
+        if (hasVisibleNativeSidebarBookmarks(header)) {
+            removeInjectedBookmarks(header);
+            return;
+        }
 
         const brand = findBrandXLink(header);
         if (!brand || !brand.parentElement) return;
@@ -528,6 +609,10 @@
     }
 
     function clearPrimaryLayoutInline() {
+        const root = document.documentElement;
+        root.classList.remove('x-pin-layout');
+        root.style.removeProperty('--x-pin-col-w');
+        root.style.removeProperty('--x-pin-col-ml');
         document.querySelectorAll('[data-x-pin-layout="1"]').forEach((el) => {
             ['width', 'max-width', 'min-width', 'flex', 'flex-basis', 'margin-left', 'margin-right'].forEach((p) => {
                 el.style.removeProperty(p);
@@ -546,16 +631,46 @@
         );
     }
 
-    function applyResponsivePrimaryLayout() {
+    let lastLayout = { w: NaN, ml: NaN };
+    let lastPrimaryEl = null;
+
+    function scheduleSettledLayout() {
+        requestAnimationFrame(() => applyResponsivePrimaryLayout(true));
+        clearTimeout(scheduleSettledLayout._t);
+        scheduleSettledLayout._t = setTimeout(() => {
+            requestAnimationFrame(() => applyResponsivePrimaryLayout(true));
+        }, 280);
+    }
+
+    function applyLayoutIfPrimaryChanged() {
+        const primary = document.querySelector('div[data-testid="primaryColumn"]');
+        if (!primary || primary === lastPrimaryEl) return;
+        lastPrimaryEl = primary;
+        applyResponsivePrimaryLayout(true);
+    }
+
+    function applyResponsivePrimaryLayout(force) {
         if (!settings.hideRightColumn || isChatPage()) {
+            lastLayout = { w: NaN, ml: NaN };
+            lastPrimaryEl = null;
             clearPrimaryLayoutInline();
             document.documentElement.classList.toggle('x-pin-chat-page', isChatPage());
             return;
         }
+
         document.documentElement.classList.remove('x-pin-chat-page');
 
         const primary = document.querySelector('div[data-testid="primaryColumn"]');
         if (!primary) return;
+        if (primary.getBoundingClientRect().width < 40) {
+            if ((applyResponsivePrimaryLayout._retry || 0) < 8) {
+                applyResponsivePrimaryLayout._retry = (applyResponsivePrimaryLayout._retry || 0) + 1;
+                requestAnimationFrame(() => applyResponsivePrimaryLayout(true));
+            }
+            return;
+        }
+        applyResponsivePrimaryLayout._retry = 0;
+        lastPrimaryEl = primary;
 
         // 侧栏不动；主栏视口居中，左边界不压过侧栏（含 iPad 缩放）
         const { width: viewport, left: visLeft } = getViewportMetrics();
@@ -570,28 +685,44 @@
             target = Math.max(280, visibleRight - sideGap - left);
         }
 
-        primary.style.setProperty('width', target + 'px', 'important');
-        primary.style.setProperty('max-width', target + 'px', 'important');
-        primary.style.setProperty('min-width', '0', 'important');
-        primary.style.setProperty('flex', '0 0 ' + target + 'px', 'important');
-        primary.style.setProperty('flex-basis', target + 'px', 'important');
-        primary.style.setProperty('margin-left', '0px', 'important');
-        primary.style.setProperty('margin-right', '0px', 'important');
-        void primary.offsetWidth;
-        const primaryLeft = Math.round(primary.getBoundingClientRect().left);
-        primary.style.setProperty('margin-left', left - primaryLeft + 'px', 'important');
-        primary.setAttribute('data-x-pin-layout', '1');
+        const currentLeft = primary.getBoundingClientRect().left;
+        const currentMl = parseFloat(getComputedStyle(primary).marginLeft) || 0;
+        const marginLeft = Math.round(left - (currentLeft - currentMl));
+
+        if (!force && Math.abs(target - lastLayout.w) < 1 && Math.abs(marginLeft - lastLayout.ml) < 1) {
+            stretchPrimaryInnerRail(primary, target);
+            return;
+        }
+
+        lastLayout = { w: target, ml: marginLeft };
+        const root = document.documentElement;
+        root.style.setProperty('--x-pin-col-w', target + 'px');
+        root.style.setProperty('--x-pin-col-ml', marginLeft + 'px');
+        root.classList.add('x-pin-layout');
+        if (primary.hasAttribute('data-x-pin-layout')) {
+            ['width', 'max-width', 'min-width', 'flex', 'flex-basis', 'margin-left', 'margin-right'].forEach((p) => {
+                primary.style.removeProperty(p);
+            });
+            primary.removeAttribute('data-x-pin-layout');
+        }
+        stretchPrimaryInnerRail(primary, target);
+    }
+
+    function stretchPrimaryInnerRail(primary, colW) {
+        const nodes = primary.querySelectorAll(
+            ':scope > div, :scope > div > div, :scope > div > div > div, section, [data-testid="cellInnerDiv"]'
+        );
+        nodes.forEach((el) => {
+            const mw = parseFloat(getComputedStyle(el).maxWidth);
+            if (!Number.isFinite(mw) || mw < 480 || mw > 720) return;
+            if (mw >= colW - 2) return;
+            el.style.setProperty('max-width', '100%', 'important');
+            el.style.setProperty('width', '100%', 'important');
+            el.setAttribute('data-x-pin-stretch', '1');
+        });
     }
 
     const cssParts = [];
-    if (settings.pinBookmarksBelowX) {
-        cssParts.push(`
-            header[role="banner"] a[href*="/i/bookmarks"]:not(#${BOOKMARKS_LINK_ID}),
-            header[role="banner"] a[data-testid="AppTabBar_Bookmarks_Link"]:not(#${BOOKMARKS_LINK_ID}) {
-                display: none !important;
-            }
-        `);
-    }
     if (settings.hideHome) {
         cssParts.push(`
             header[role="banner"] a[data-testid="AppTabBar_Home_Link"],
@@ -647,10 +778,28 @@
                 min-width: 0 !important;
             }
 
-            html:not(.x-pin-chat-page) div[data-testid="primaryColumn"] > div,
-            html:not(.x-pin-chat-page) div[data-testid="primaryColumn"] article {
-                max-width: 100% !important;
+            html.x-pin-layout:not(.x-pin-chat-page) div[data-testid="primaryColumn"] {
+                width: var(--x-pin-col-w, 680px) !important;
+                max-width: var(--x-pin-col-w, 680px) !important;
                 min-width: 0 !important;
+                flex: 0 0 var(--x-pin-col-w, 680px) !important;
+                flex-basis: var(--x-pin-col-w, 680px) !important;
+                margin-left: var(--x-pin-col-ml, 0px) !important;
+                margin-right: 0 !important;
+            }
+
+            html.x-pin-layout:not(.x-pin-chat-page) div[data-testid="primaryColumn"] > div,
+            html.x-pin-layout:not(.x-pin-chat-page) div[data-testid="primaryColumn"] > div > div,
+            html.x-pin-layout:not(.x-pin-chat-page) div[data-testid="primaryColumn"] section,
+            html.x-pin-layout:not(.x-pin-chat-page) div[data-testid="primaryColumn"] [data-testid="cellInnerDiv"],
+            html.x-pin-layout:not(.x-pin-chat-page) div[data-testid="primaryColumn"] article,
+            html.x-pin-layout:not(.x-pin-chat-page) div[data-testid="primaryColumn"] .r-1ye8kvj,
+            html.x-pin-layout:not(.x-pin-chat-page) div[data-testid="primaryColumn"] [data-x-pin-stretch="1"] {
+                max-width: 100% !important;
+                width: 100% !important;
+                min-width: 0 !important;
+                box-sizing: border-box !important;
+                align-self: stretch !important;
             }
         `);
     }
@@ -666,15 +815,20 @@
     const originalReplaceState = history.replaceState;
     history.pushState = function () {
         const result = originalPushState.apply(this, arguments);
+        scheduleSettledLayout();
         setTimeout(tick, 50);
         return result;
     };
     history.replaceState = function () {
         const result = originalReplaceState.apply(this, arguments);
+        scheduleSettledLayout();
         setTimeout(tick, 50);
         return result;
     };
-    window.addEventListener('popstate', () => setTimeout(tick, 50));
+    window.addEventListener('popstate', () => {
+        scheduleSettledLayout();
+        setTimeout(tick, 50);
+    });
 
     let resizeTimer = null;
     const onResize = () => {
@@ -693,6 +847,7 @@
 
     const navObserver = new MutationObserver(() => {
         if (bookmarksInserting) return;
+        applyLayoutIfPrimaryChanged();
         clearTimeout(navObserver._timer);
         navObserver._timer = setTimeout(() => {
             if (!bookmarksInserting) tick();

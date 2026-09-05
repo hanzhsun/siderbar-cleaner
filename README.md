@@ -14,7 +14,7 @@
 
 ---
 
-## X/Twitter Sidebar Pin（增强脚本 · 1.0）
+## X/Twitter Sidebar Pin（增强脚本 · 1.1）
 
 与 3.7 配合使用，提供：
 
@@ -22,8 +22,8 @@
 - 隐藏右侧栏时：左侧栏保持原靠边；主栏尽量居中，左边界不超过侧栏
 - iPad / 捏合缩放：按可见视口（`visualViewport`）计算宽度与位置
 
-- 脚本：`X-Twitter Sidebar Pin-1.0.user.js`
-- 版本：**1.0**
+- 脚本：`X-Twitter Sidebar Pin-1.1.user.js`
+- 版本：**1.1**
 - 作者：hanzhsun
 - 菜单：Tampermonkey → **侧栏固定设置**
 
@@ -32,7 +32,7 @@
 ### 安装
 
 1. 安装主脚本 `…3.7.user.js`
-2. 再安装 `X-Twitter Sidebar Pin-1.0.user.js`
+2. 再安装 `X-Twitter Sidebar Pin-1.1.user.js`
 
 ---
 
